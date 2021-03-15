@@ -1,17 +1,23 @@
 ---
 
-- hosts: tag_Name_csgo_server
-  become: yes
+- hosts: terraform-ec2-instances
+  become: true
   vars_files:
     - ./vars/defaults.yaml
+    - ./vars/tf_ansible_vars_file.yaml
   tasks:
-  - name: add i386 arch
+
+  - name: Add i386 arch
     command: dpkg --add-architecture i386
   
-  - name: update package list
+  - name: Update package list
     apt:
       update_cache: yes
       cache_valid_time: 3600
+  
+  - name: Upgrade installed packages
+    apt:
+      upgrade: full
   
   - name: "Check if SteamCMD is installed"
     package_facts:
@@ -34,33 +40,36 @@
 
   - name: Ensure LGSM Server Group exists
     group:
-      name: "{{ lgsm_group }}"
+      name: "{{ tf_svc_account }}"
       system: yes
 
   - name: Ensure LGSM Server user exists
     user:
-      name: "{{ lgsm_user }}"
-      group: "{{ lgsm_group }}"
+      name: "{{ tf_svc_account }}"
+      group: "{{ tf_svc_account }}"
       shell: /bin/bash
       system: yes
 
   - name: Download LGSM server creator
     get_url:
       url: https://linuxgsm.sh
-      dest: "/home/{{ lgsm_user }}/linuxgsm.sh"
+      dest: "/home/{{ tf_svc_account }}/linuxgsm.sh"
       mode: 0755
-      owner: "{{ lgsm_user }}"
+      owner: "{{ tf_svc_account }}"
 
   - name: check if csgoserver file exists
     stat: 
-      path: "/home/{{ lgsm_user }}/csgoserver"
+      path: "/home/{{ tf_svc_account }}/csgoserver"
     register: csgoserver_file
+
+
+### This is where it breaks
 
   - name: Initialize the csgoserver
     shell: ~/linuxgsm.sh csgoserver
     args:
       executable: /bin/bash
-      chdir: "/home/{{ lgsm_user }}"
+      chdir: "/home/{{ tf_svc_account }}"
     become_user: csgoserver
     register: csgoserver_init
     when: not csgoserver_file.stat.exists
@@ -73,7 +82,7 @@
     shell: ~/csgoserver auto-install > csgoinstall.log
     args:
       executable: /bin/bash
-      chdir: "/home/{{ lgsm_user }}"
+      chdir: "/home/{{ tf_svc_account }}"
     become_user: csgoserver
     when: not csgoserver_file.stat.exists
 
@@ -98,5 +107,5 @@
     shell: ~/csgoserver restart
     args:
       executable: /bin/bash
-      chdir: "/home/{{ lgsm_user }}"
+      chdir: "/home/{{ tf_svc_account }}"
     when: servercfg.changed or csgocfg.changed
