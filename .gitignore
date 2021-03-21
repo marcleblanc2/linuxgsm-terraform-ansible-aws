@@ -24,3 +24,5 @@ notes
 versions.tf
 *.tfstate*
 provider.tf
+tf_ansible_vars_file.yaml
+hosts

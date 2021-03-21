@@ -19,16 +19,16 @@
     apt:
       upgrade: full
   
-  - name: "Check if SteamCMD is installed"
+  - name: Update Ansible package facts, so Ansible knows which packages are installed
     package_facts:
       manager: apt
 
-  - name: SteamCMD (licence agreement)
+  - name: Pre-select agreement to the SteamCMD licence agreement before SteamCMD installation
     shell: 
       cmd: echo steam steam/question select "I AGREE" | sudo debconf-set-selections
     when: "'steamcmd:i386' not in ansible_facts.packages"
 
-  - name: SteamCMD (licence note)
+  - name: Pre-acknowledge the SteamCMD licence note
     shell: 
       cmd: echo steam steam/license note '' | sudo debconf-set-selections
     when: "'steamcmd:i386' not in ansible_facts.packages"
@@ -38,74 +38,67 @@
       name: "{{ item }}"
     loop: "{{ lgsm_dependencies }}"
 
-  - name: Ensure LGSM Server Group exists
+  - name: Ensure LGSM service account group exists
     group:
       name: "{{ tf_svc_account }}"
       system: yes
 
-  - name: Ensure LGSM Server user exists
+  - name: Ensure LGSM service account exists
     user:
       name: "{{ tf_svc_account }}"
       group: "{{ tf_svc_account }}"
-      shell: /bin/bash
+      shell: /sbin/nologin
       system: yes
 
-  - name: Download LGSM server creator
+  - name: Ensure LGSM service account cannot log in
+    shell: 
+      cmd: usermod -L {{ tf_svc_account }}
+
+  - name: Download LGSM server installation script
     get_url:
       url: https://linuxgsm.sh
       dest: "/home/{{ tf_svc_account }}/linuxgsm.sh"
-      mode: 0755
+      mode: 0700
       owner: "{{ tf_svc_account }}"
 
-  - name: check if csgoserver file exists
+  - name: Check if the ~/vhserver directory already exists from a previous installation attempt
     stat: 
-      path: "/home/{{ tf_svc_account }}/csgoserver"
-    register: csgoserver_file
+      path: "/home/{{ tf_svc_account }}/vhserver"
+    register: vhserver_file
 
-
-### This is where it breaks
-
-  - name: Initialize the csgoserver
-    shell: ~/linuxgsm.sh csgoserver
+  - name: Use linuxgsm.sh to initialize vhserver
+    shell: ~/linuxgsm.sh vhserver
     args:
       executable: /bin/bash
       chdir: "/home/{{ tf_svc_account }}"
-    become_user: csgoserver
-    register: csgoserver_init
-    when: not csgoserver_file.stat.exists
+    become_user: "{{ tf_svc_account }}"
+    register: vhserver_init
+    when: not vhserver_file.stat.exists
 
   - debug:
-      var: csgoserver_init.stdout_lines
-    when: not csgoserver_file.stat.exists
+      var: vhserver_init.stdout_lines
+    when: not vhserver_file.stat.exists
 
-  - name: Installing the csgoserver(this step might take 30-40min)
-    shell: ~/csgoserver auto-install > csgoinstall.log
+  - name: Install the vhserver
+    shell: ~/vhserver auto-install > install.log
     args:
       executable: /bin/bash
       chdir: "/home/{{ tf_svc_account }}"
-    become_user: csgoserver
-    when: not csgoserver_file.stat.exists
+    become_user: "{{ tf_svc_account }}"
+    when: not vhserver_file.stat.exists
 
-  - name: Copy server configuration
+  - name: Copy the LGSM instance configuration file
     copy:
-      src: files/server.cfg
-      dest: /home/csgoserver/serverfiles/csgo/cfg/csgoserver.cfg
-      owner: csgoserver
-      group: csgoserver
-    register: servercfg
+      src: files/vhserver.cfg
+      dest: /home/{{ tf_svc_account }}/lgsm/config-lgsm/vhserver/vhserver.cfg
+      owner: "{{ tf_svc_account }}"
+      group: "{{ tf_svc_account }}"
+    register: vhservercfg
 
-  - name: Copy game configuration
-    copy:
-      src: files/csgo.cfg
-      dest: /home/csgoserver/lgsm/config-lgsm/csgoserver/csgoserver.cfg
-      owner: csgoserver
-      group: csgoserver
-    register: csgocfg
-
-  - name: Restart the server
-    become_user: csgoserver
-    shell: ~/csgoserver restart
+  - name: Restart the game service
+    become_user: "{{ tf_svc_account }}"
+    shell: ~/vhserver restart
     args:
       executable: /bin/bash
       chdir: "/home/{{ tf_svc_account }}"
-    when: servercfg.changed or csgocfg.changed
+    when: vhservercfg.changed
